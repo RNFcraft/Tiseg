@@ -1,5 +1,4 @@
 #include <Tiseg.h>
-#include <TisegButton.h>
 
 const uint8_t digitPins[]   = {13, 12, 11, 10};
 const uint8_t segmentPins[] = {2, 3, 4, 5, 6, 7, 8, 1};
@@ -44,21 +43,18 @@ void setup() {
     display.begin();
     button.begin();
 
-    // Assign our timer-control function to the button press event.
     button.onPress(handleTimerButton);
 
     display.printR(0, true); // 0000
 }
 
 void loop() {
-    // Both helpers are non-blocking and should be updated constantly.
     display.tick();
     button.tick();
 
     if (timerState == TIMER_RUNNING) {
         unsigned long now = millis();
 
-        // Use subtraction so millis() overflow is handled correctly.
         while (now - lastSecondAt >= 1000UL) {
             lastSecondAt += 1000UL;
             seconds++;
