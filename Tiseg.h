@@ -6,8 +6,8 @@
  * Tiseg — lightweight driver for multiplexed common-anode 7-segment displays.
  *
  * The Tiseg class itself is responsible only for displaying numbers.
- * TisegButton is included through this header as an optional helper, so users
- * only need #include <Tiseg.h> in their sketches.
+ * TisegButton and TisegTimer are exposed through this header as optional
+ * helpers, so users only need #include <Tiseg.h> in their sketches.
  *
  * DIGITS is the number of display digits, for example Tiseg<4>.
  */
@@ -167,3 +167,6 @@ const uint8_t Tiseg<DIGITS>::SEG7[10] = {
     0x7F,
     0x6F
 };
+
+// Convenience timer helper is included last because it is built on Tiseg.
+#include "TisegTimer.h"
