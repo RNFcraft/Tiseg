@@ -1,4 +1,4 @@
-# Tiseg — 7-сегментный дисплей, кнопка и простой таймер для Arduino
+# Tiseg — 7-сегментный дисплей и удобная обвязка таймера для Arduino
 
 [![Platform](https://img.shields.io/badge/platform-Arduino-blue)](https://www.arduino.cc)
 [![Dependencies](https://img.shields.io/badge/dependencies-none-green)](#установка)
@@ -9,17 +9,15 @@
 #include <Tiseg.h>
 ```
 
-После этого доступны три уровня API:
+После этого доступны:
 
-- `Tiseg<DIGITS>` — только вывод чисел на дисплей;
+- `Tiseg<DIGITS>` — вывод чисел на дисплей;
 - `TisegButton` — отдельная кнопка с антидребезгом;
-- `TisegTimer<DIGITS>` — готовый таймер с одной кнопкой.
+- `TisegTimerControl` — готовая обвязка кнопки для цикла **start → pause → reset**.
 
-Все компоненты неблокирующие и работают через `tick()`.
+`TisegTimerControl` специально **не считает время и не управляет дисплеем**. Секунды, предел таймера, формат вывода и вся прикладная логика остаются в скетче, чтобы её можно было легко менять.
 
-## Быстрый старт: таймер 0 → 60 одной кнопкой
-
-Для задачи с четырёхразрядным индикатором:
+## Пример: редактируемый таймер 0 → 60
 
 ```cpp
 #include <Tiseg.h>
@@ -27,193 +25,156 @@
 const uint8_t digitPins[] = {13, 12, 11, 10};
 const uint8_t segmentPins[] = {2, 3, 4, 5, 6, 7, 8, 1};
 
-TisegTimer<4> timer(digitPins, segmentPins, 9, 60);
-
-void setup() {
-    timer.begin();
-}
-
-void loop() {
-    timer.tick();
-}
-```
-
-Подключение сегментов:
-
-```text
-A  -> 2
-B  -> 3
-C  -> 4
-D  -> 5
-E  -> 6
-F  -> 7
-G  -> 8
-DP -> 1
-
-Разряды общего анода -> 13, 12, 11, 10
-Кнопка -> 9 и GND
-```
-
-### Поведение таймера
-
-После `timer.begin()` дисплей показывает:
-
-```text
-0000
-```
-
-Первое нажатие запускает таймер. Во время счёта ведущие нули не выводятся:
-
-```text
-___0
-___1
-___2
-...
-__12
-...
-__59
-```
-
-Второе нажатие ставит таймер на паузу и включает ведущие нули:
-
-```text
-0001
-0012
-0059
-```
-
-Третье нажатие сбрасывает таймер:
-
-```text
-0000
-```
-
-Если таймер сам доходит до максимума `60`, он останавливается и показывает:
-
-```text
-0060
-```
-
-Следующее нажатие после завершения сбрасывает его в `0000`.
-
-## `TisegTimer`
-
-Создание:
-
-```cpp
-TisegTimer<4> timer(digitPins, segmentPins, buttonPin, maxSeconds);
-```
-
-Например:
-
-```cpp
-TisegTimer<4> timer(digitPins, segmentPins, 9, 60);
-```
-
-Основные методы:
-
-```cpp
-timer.begin();
-timer.tick();
-timer.start();
-timer.pause();
-timer.reset();
-```
-
-Текущее значение:
-
-```cpp
-unsigned long value = timer.value();
-```
-
-Текущее состояние:
-
-```cpp
-TisegTimer<4>::State state = timer.state();
-```
-
-Для расширенных случаев можно получить внутренние объекты:
-
-```cpp
-timer.display();
-timer.button();
-```
-
-## Обычный вывод чисел через `Tiseg`
-
-```cpp
-#include <Tiseg.h>
-
-const uint8_t digitPins[] = {13, 12, 11, 10};
-const uint8_t segmentPins[] = {2, 3, 4, 5, 6, 7, 8, 1};
+const uint8_t BUTTON_PIN = 9;
+const unsigned long MAX_SECONDS = 60;
 
 Tiseg<4> display(digitPins, segmentPins);
+TisegTimerControl timer(BUTTON_PIN);
+
+unsigned long seconds = 0;
+unsigned long lastSecondAt = 0;
 
 void setup() {
     display.begin();
-    display.printR(1);
+    timer.begin();
+    display.printR(0, true); // 0000
 }
 
 void loop() {
     display.tick();
+    timer.tick();
+
+    if (timer.justStarted()) {
+        lastSecondAt = millis();
+        display.printR((long)seconds, false);
+    }
+
+    if (timer.justPaused()) {
+        display.printR((long)seconds, true);
+    }
+
+    if (timer.justReset()) {
+        seconds = 0;
+        display.printR(0, true);
+    }
+
+    if (timer.isRunning()) {
+        unsigned long now = millis();
+
+        while (timer.isRunning() && now - lastSecondAt >= 1000UL) {
+            lastSecondAt += 1000UL;
+            seconds++;
+            display.printR((long)seconds, false);
+
+            if (seconds >= MAX_SECONDS) {
+                seconds = MAX_SECONDS;
+                timer.pause();
+                display.printR((long)seconds, true);
+            }
+        }
+    }
 }
 ```
 
-Вывод справа:
+### Поведение этого примера
+
+- после включения: `0000`;
+- первое нажатие — запуск, во время счёта: `___0`, `___1`, `__12` ...;
+- второе нажатие — пауза и заполнение нулями: `0012`;
+- третье нажатие — сброс: `0000`;
+- при достижении `60` пример сам вызывает `timer.pause()` и показывает `0060`.
+
+При этом всё легко менять прямо в скетче. Например:
 
 ```cpp
-display.printR(1);        // ___1
-display.printR(12);       // __12
-display.printR(12, true); // 0012
+const unsigned long MAX_SECONDS = 120;
 ```
 
-Вывод слева:
+или убрать автоматическую остановку, изменить шаг времени, формат вывода, добавить мигание и т.д.
+
+## `TisegTimerControl`
+
+Создание:
 
 ```cpp
-display.printL(1);        // 1___
-display.printL(12);       // 12__
-display.printL(12, true); // 1200
-```
-
-`print()` является сокращением для `printR()`:
-
-```cpp
-display.print(123);       // _123
-display.print(123, true); // 0123
-```
-
-Очистка:
-
-```cpp
-display.clear();
-```
-
-## `TisegButton`
-
-Отдельный include не нужен:
-
-```cpp
-#include <Tiseg.h>
-
-TisegButton button(9);
+TisegTimerControl timer(buttonPin);
 ```
 
 В `setup()`:
 
 ```cpp
-button.begin();
-button.onPress(myFunction);
+timer.begin();
 ```
 
 В `loop()`:
 
 ```cpp
-button.tick();
+timer.tick();
+```
+
+Состояния:
+
+```cpp
+timer.isReady();
+timer.isRunning();
+timer.isPaused();
+```
+
+Одноразовые события переходов:
+
+```cpp
+timer.justStarted();
+timer.justPaused();
+timer.justReset();
+```
+
+Состоянием можно управлять вручную из своего кода:
+
+```cpp
+timer.start();
+timer.pause();
+timer.reset();
+```
+
+То есть библиотека убирает только повторяющийся код кнопки и переключения состояний, но не прячет сам таймер.
+
+## Вывод чисел через `Tiseg`
+
+```cpp
+Tiseg<4> display(digitPins, segmentPins);
+```
+
+Основные методы:
+
+```cpp
+display.begin();
+display.tick();
+
+display.printR(1);        // ___1
+display.printR(12);       // __12
+display.printR(12, true); // 0012
+
+display.printL(1);        // 1___
+display.printL(12);       // 12__
+display.printL(12, true); // 1200
+
+display.print(123);       // _123
+display.clear();
+```
+
+## `TisegButton`
+
+Для произвольной работы с кнопкой:
+
+```cpp
+TisegButton button(9);
 ```
 
 Доступны:
 
 ```cpp
+button.begin();
+button.tick();
 button.onPress(myFunction);
 button.onRelease(myFunction);
 button.isPressed();
@@ -235,7 +196,7 @@ button.wasReleased();
 Tiseg/
 ├── Tiseg.h
 ├── TisegButton.h
-├── TisegTimer.h
+├── TisegTimerControl.h
 ├── library.properties
 └── examples/
     ├── BasicDisplay/
