@@ -35,10 +35,12 @@ public:
             digitalWrite(_segmentPins[i], SEGMENT_OFF);
         }
 
+        _enabled = true;
         clear();
     }
 
     void tick() {
+        if (!_enabled) return;
         multiplex();
     }
 
@@ -60,6 +62,39 @@ public:
         }
     }
 
+    /**
+     * Enable or blank the physical display without changing the buffer.
+     * Calling print()/printR()/printL() enables the display again.
+     */
+    void setEnabled(bool enabled) {
+        if (_enabled == enabled) return;
+
+        _enabled = enabled;
+
+        if (!_enabled) {
+            disableDigits();
+
+            for (uint8_t s = 0; s < 8; s++) {
+                digitalWrite(_segmentPins[s], SEGMENT_OFF);
+            }
+        } else {
+            // Let the next tick refresh immediately.
+            _stepAt = 0;
+        }
+    }
+
+    void show() {
+        setEnabled(true);
+    }
+
+    void hide() {
+        setEnabled(false);
+    }
+
+    bool isEnabled() const {
+        return _enabled;
+    }
+
 private:
     const uint8_t* _digitPins;
     const uint8_t* _segmentPins;
@@ -67,6 +102,7 @@ private:
     uint8_t _screen[DIGITS] = {0};
     uint8_t _digit = 0;
     unsigned long _stepAt = 0;
+    bool _enabled = true;
 
     static const uint8_t DIGIT_ON = HIGH;
     static const uint8_t DIGIT_OFF = LOW;
@@ -76,6 +112,12 @@ private:
     static const uint8_t SEG7[10];
     static const uint8_t MINUS = 0x40;
 
+    void disableDigits() {
+        for (uint8_t i = 0; i < DIGITS; i++) {
+            digitalWrite(_digitPins[i], DIGIT_OFF);
+        }
+    }
+
     void multiplex() {
         unsigned long now = millis();
         if (now - _stepAt < 2) return;
@@ -83,9 +125,7 @@ private:
 
         // Disable every common anode before changing segment lines.
         // This prevents ghosting between digits.
-        for (uint8_t i = 0; i < DIGITS; i++) {
-            digitalWrite(_digitPins[i], DIGIT_OFF);
-        }
+        disableDigits();
 
         uint8_t code = _screen[_digit];
 
@@ -106,6 +146,8 @@ private:
     }
 
     void render(long num, bool alignLeft, bool fillZeros) {
+        // A new value should become visible even if the display was blanked.
+        setEnabled(true);
         clear();
 
         bool negative = (num < 0);
