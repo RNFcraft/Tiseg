@@ -5,23 +5,18 @@
 /**
  * Tiseg — lightweight driver for multiplexed common-anode 7-segment displays.
  *
- * The Tiseg class itself is responsible only for displaying numbers.
- * TisegButton and TisegTimer are exposed through this header as optional
- * helpers, so users only need #include <Tiseg.h> in their sketches.
+ * Tiseg itself only handles number output and multiplexing.
+ * TisegButton and TisegTimerControl are available through this same header,
+ * so sketches only need #include <Tiseg.h>.
  *
  * DIGITS is the number of display digits, for example Tiseg<4>.
  */
 template <uint8_t DIGITS>
 class Tiseg {
 public:
-    /**
-     * @param digitPins   Digit-select pins, DIGITS items.
-     * @param segmentPins Segment pins, 8 items in order: a,b,c,d,e,f,g,dp.
-     */
     Tiseg(const uint8_t* digitPins, const uint8_t* segmentPins)
         : _digitPins(digitPins), _segmentPins(segmentPins) {}
 
-    /** Configure display pins. Call once from setup(). */
     void begin() {
         for (uint8_t i = 0; i < DIGITS; i++) {
             pinMode(_digitPins[i], OUTPUT);
@@ -36,27 +31,22 @@ public:
         clear();
     }
 
-    /** Refresh dynamic indication. Call as often as possible from loop(). */
     void tick() {
         multiplex();
     }
 
-    /** Default number output: right aligned. */
     void print(long num, bool fillZeros = false) {
         printR(num, fillZeros);
     }
 
-    /** Right-aligned number output. */
     void printR(long num, bool fillZeros = false) {
         render(num, false, fillZeros);
     }
 
-    /** Left-aligned number output. */
     void printL(long num, bool fillZeros = false) {
         render(num, true, fillZeros);
     }
 
-    /** Clear the display buffer. */
     void clear() {
         for (uint8_t i = 0; i < DIGITS; i++) {
             _screen[i] = 0;
@@ -168,5 +158,4 @@ const uint8_t Tiseg<DIGITS>::SEG7[10] = {
     0x6F
 };
 
-// Convenience timer helper is included last because it is built on Tiseg.
-#include "TisegTimer.h"
+#include "TisegTimerControl.h"
