@@ -88,10 +88,6 @@ public:
      *   }
      *
      * Returns false if the timer leaves RUNNING state during the wait.
-     * This lets a button press immediately stop the for-loop.
-     *
-     * Note: this intentionally waits inside the current sketch flow, but it
-     * keeps both the display and button serviced during that time.
      */
     template <typename Tickable>
     bool wait(unsigned long durationMs, Tickable& tickable) {
@@ -105,6 +101,60 @@ public:
         }
 
         return _state == RUNNING;
+    }
+
+    /**
+     * Timer wait with a blink transition.
+     *
+     * For the first half of durationMs the current value is visible.
+     * For the second half the display is completely blank.
+     * On normal completion the display remains blank until the next print(),
+     * so the next visible value is already the next number from the for-loop.
+     *
+     * Example for a one-second timer step:
+     *   value 1 -> visible 500 ms -> blank 500 ms -> value 2
+     *
+     * If the timer is paused during the wait, the display is enabled again
+     * before returning false so the paused value can be shown immediately.
+     */
+    template <typename Display>
+    bool waitBlink(unsigned long durationMs, Display& display) {
+        if (_state != RUNNING) {
+            display.show();
+            return false;
+        }
+
+        unsigned long startedAt = millis();
+        unsigned long blankAt = durationMs / 2UL;
+        bool blanked = false;
+
+        display.show();
+
+        while (_state == RUNNING) {
+            unsigned long elapsed = millis() - startedAt;
+            if (elapsed >= durationMs) break;
+
+            if (!blanked && elapsed >= blankAt) {
+                display.hide();
+                blanked = true;
+            }
+
+            if (!blanked) {
+                display.tick();
+            }
+
+            tick();
+        }
+
+        if (_state != RUNNING) {
+            display.show();
+            return false;
+        }
+
+        // Finish the step blank. The next display.print*() call enables the
+        // display only after its new number has been written to the buffer.
+        display.hide();
+        return true;
     }
 
     State state() const {
