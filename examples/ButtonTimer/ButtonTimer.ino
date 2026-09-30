@@ -1,64 +1,28 @@
 #include <Tiseg.h>
 
-const uint8_t digitPins[]   = {13, 12, 11, 10};
+// Common-anode digit pins.
+const uint8_t digitPins[] = {13, 12, 11, 10};
+
+// Segments: A, B, C, D, E, F, G, DP.
 const uint8_t segmentPins[] = {2, 3, 4, 5, 6, 7, 8, 1};
-const uint8_t BUTTON_PIN = 9;
 
-Tiseg<4> display(digitPins, segmentPins);
-TisegButton button(BUTTON_PIN);
-
-enum TimerState {
-    TIMER_READY,
-    TIMER_RUNNING,
-    TIMER_PAUSED
-};
-
-TimerState timerState = TIMER_READY;
-unsigned long seconds = 0;
-unsigned long lastSecondAt = 0;
-
-void handleTimerButton() {
-    switch (timerState) {
-        case TIMER_READY:
-            // 1st press: start counting.
-            timerState = TIMER_RUNNING;
-            lastSecondAt = millis();
-            break;
-
-        case TIMER_RUNNING:
-            // 2nd press: pause and keep the current value on screen.
-            timerState = TIMER_PAUSED;
-            break;
-
-        case TIMER_PAUSED:
-            // 3rd press: reset to zero and return to the ready state.
-            timerState = TIMER_READY;
-            seconds = 0;
-            display.printR(seconds, true);
-            break;
-    }
-}
+// 4-digit timer, button on pin 9, count from 0 to 60 seconds.
+TisegTimer<4> timer(digitPins, segmentPins, 9, 60);
 
 void setup() {
-    display.begin();
-    button.begin();
-
-    button.onPress(handleTimerButton);
-
-    display.printR(0, true); // 0000
+    timer.begin(); // Shows 0000.
 }
 
 void loop() {
-    display.tick();
-    button.tick();
-
-    if (timerState == TIMER_RUNNING) {
-        unsigned long now = millis();
-
-        while (now - lastSecondAt >= 1000UL) {
-            lastSecondAt += 1000UL;
-            seconds++;
-            display.printR((long)seconds, true);
-        }
-    }
+    timer.tick();
 }
+
+/*
+Button behaviour:
+  1st press -> start:  ___0, ___1, ___2 ... __59
+  2nd press -> pause: 0001, 0012, 0059 ...
+  3rd press -> reset: 0000
+
+If the timer reaches 60 by itself, it stops at 0060.
+The next press resets it to 0000.
+*/
