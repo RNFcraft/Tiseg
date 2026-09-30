@@ -3,7 +3,12 @@
 #include "TisegButton.h"
 
 /**
- * Tiseg — lightweight driver for multiplexed common-anode 7-segment displays.
+ * Tiseg — lightweight driver for directly connected multiplexed
+ * common-anode 7-segment displays.
+ *
+ * Electrical polarity for a direct common-anode connection:
+ *   digit/common anode: HIGH = enabled, LOW = disabled
+ *   segment cathode:    LOW  = lit,     HIGH = off
  *
  * Tiseg itself only handles number output and multiplexing.
  * TisegButton and TisegTimerControl are available through this same header,
@@ -18,14 +23,16 @@ public:
         : _digitPins(digitPins), _segmentPins(segmentPins) {}
 
     void begin() {
+        // Direct common-anode connection: LOW keeps a digit disabled.
         for (uint8_t i = 0; i < DIGITS; i++) {
             pinMode(_digitPins[i], OUTPUT);
-            digitalWrite(_digitPins[i], HIGH);
+            digitalWrite(_digitPins[i], DIGIT_OFF);
         }
 
+        // Segment cathodes are active LOW, so HIGH means off.
         for (uint8_t i = 0; i < 8; i++) {
             pinMode(_segmentPins[i], OUTPUT);
-            digitalWrite(_segmentPins[i], HIGH);
+            digitalWrite(_segmentPins[i], SEGMENT_OFF);
         }
 
         clear();
@@ -61,6 +68,11 @@ private:
     uint8_t _digit = 0;
     unsigned long _stepAt = 0;
 
+    static const uint8_t DIGIT_ON = HIGH;
+    static const uint8_t DIGIT_OFF = LOW;
+    static const uint8_t SEGMENT_ON = LOW;
+    static const uint8_t SEGMENT_OFF = HIGH;
+
     static const uint8_t SEG7[10];
     static const uint8_t MINUS = 0x40;
 
@@ -69,17 +81,24 @@ private:
         if (now - _stepAt < 2) return;
         _stepAt = now;
 
+        // Disable every common anode before changing segment lines.
+        // This prevents ghosting between digits.
         for (uint8_t i = 0; i < DIGITS; i++) {
-            digitalWrite(_digitPins[i], HIGH);
+            digitalWrite(_digitPins[i], DIGIT_OFF);
         }
 
         uint8_t code = _screen[_digit];
 
+        // Prepare all segment cathodes while all digits are disabled.
         for (uint8_t s = 0; s < 8; s++) {
-            digitalWrite(_segmentPins[s], (code & (1 << s)) ? LOW : HIGH);
+            digitalWrite(
+                _segmentPins[s],
+                (code & (1 << s)) ? SEGMENT_ON : SEGMENT_OFF
+            );
         }
 
-        digitalWrite(_digitPins[_digit], LOW);
+        // Enable only the selected common-anode digit.
+        digitalWrite(_digitPins[_digit], DIGIT_ON);
 
         if (++_digit >= DIGITS) {
             _digit = 0;
