@@ -3,42 +3,40 @@
 [![Platform](https://img.shields.io/badge/platform-Arduino-blue)](https://www.arduino.cc)
 [![Dependencies](https://img.shields.io/badge/dependencies-none-green)](#установка)
 
-**Tiseg** — небольшая шаблонная библиотека для вывода целых чисел на многоразрядный 7-сегментный индикатор с общим анодом.
+**Tiseg** — небольшая библиотека для вывода целых чисел на многоразрядный 7-сегментный индикатор с общим анодом.
 
-Основной класс `Tiseg` занимается только дисплеем: хранит изображение, преобразует число в сегменты и выполняет динамическую индикацию. Для проектов с кнопкой в библиотеке есть отдельный необязательный помощник `TisegButton`, который не смешивает логику кнопки с драйвером дисплея.
+Для использования дисплея и кнопки достаточно одного подключения:
+
+```cpp
+#include <Tiseg.h>
+```
+
+После этого доступны оба класса:
+
+```cpp
+Tiseg<4> display(digitPins, segmentPins);
+TisegButton button(9);
+```
+
+`Tiseg` отвечает только за дисплей, а `TisegButton` — за кнопку и антидребезг. Они остаются независимыми, хотя подключаются одним заголовком.
 
 ## Возможности
 
-- `print(num)` — обычный вывод числа справа.
-- `printR(num)` — выравнивание числа по правому краю.
-- `printL(num)` — выравнивание числа по левому краю.
-- Неиспользуемые разряды можно оставить пустыми или заполнить нулями.
-- Поддерживаются отрицательные целые числа.
-- Любое количество разрядов через шаблон: `Tiseg<2>`, `Tiseg<4>`, `Tiseg<6>` и т.д.
-- Встроенное неблокирующее мультиплексирование.
-- `TisegButton` — необязательная кнопка с антидребезгом и callback-функциями.
+- `print(num)` — вывод числа справа.
+- `printR(num)` — выравнивание по правому краю.
+- `printL(num)` — выравнивание по левому краю.
+- Свободные разряды можно оставить пустыми или заполнить нулями.
+- Поддерживаются отрицательные числа.
+- Любое количество разрядов: `Tiseg<2>`, `Tiseg<4>`, `Tiseg<6>` и т.д.
+- Неблокирующее мультиплексирование.
+- `TisegButton` с антидребезгом, callback-функциями и event API.
 - Внешних зависимостей нет.
 
 ## Установка
 
-Скопируйте папку `Tiseg` в `Documents/Arduino/libraries` либо установите библиотеку ZIP-архивом через Arduino IDE.
+Скопируйте папку `Tiseg` в `Documents/Arduino/libraries` либо установите ZIP через Arduino IDE.
 
-## Подключение дисплея
-
-Конструктор принимает два массива:
-
-```cpp
-const uint8_t digitPins[]   = {13, 12, 11, 10};
-const uint8_t segmentPins[] = {2, 3, 4, 5, 6, 7, 8, 1};
-
-Tiseg<4> display(digitPins, segmentPins);
-```
-
-- `digitPins` — пины разрядов, их количество должно совпадать с `Tiseg<DIGITS>`.
-- `segmentPins` — восемь пинов сегментов в порядке `a, b, c, d, e, f, g, dp`.
-- Текущая реализация рассчитана на индикатор с **общим анодом**.
-
-## Быстрый старт
+## Быстрый старт дисплея
 
 ```cpp
 #include <Tiseg.h>
@@ -50,11 +48,11 @@ Tiseg<4> display(digitPins, segmentPins);
 
 void setup() {
     display.begin();
-    display.printR(1);     // ___1
+    display.printR(1); // ___1
 }
 
 void loop() {
-    display.tick();        // обязательно вызывать постоянно
+    display.tick();
 }
 ```
 
@@ -66,79 +64,65 @@ void loop() {
 
 ### `tick()`
 
-Обновляет один разряд динамической индикации. Метод нужно вызывать как можно чаще в `loop()`.
-
-```cpp
-void loop() {
-    display.tick();
-}
-```
-
-`tick()` не содержит `delay()` и не блокирует основную программу.
+Обновляет динамическую индикацию. Вызывать как можно чаще в `loop()`.
 
 ### `print(num, fillZeros = false)`
 
-Эквивалент `printR()` — число выводится справа.
+Эквивалент `printR()`:
 
 ```cpp
-display.print(1);        // ___1
-display.print(1, true);  // 0001
+display.print(1);       // ___1
+display.print(1, true); // 0001
 ```
 
 ### `printR(num, fillZeros = false)`
 
-Выравнивает число по правому краю:
-
 ```cpp
-display.printR(1);         // ___1
-display.printR(12);        // __12
-display.printR(12, true);  // 0012
-display.printR(1234);      // 1234
+display.printR(1);        // ___1
+display.printR(12);       // __12
+display.printR(12, true); // 0012
 ```
 
 ### `printL(num, fillZeros = false)`
 
-Выравнивает число по левому краю:
-
 ```cpp
-display.printL(1);         // 1___
-display.printL(12);        // 12__
-display.printL(12, true);  // 1200
-display.printL(1234);      // 1234
+display.printL(1);        // 1___
+display.printL(12);       // 12__
+display.printL(12, true); // 1200
 ```
 
-Здесь `_` означает погашенный разряд.
+`_` означает погашенный разряд.
 
 ### `clear()`
-
-Очищает буфер дисплея:
 
 ```cpp
 display.clear();
 ```
 
-## Дополнительный класс `TisegButton`
+## Кнопка через тот же `Tiseg.h`
 
-Кнопка подключается отдельным заголовком:
+Отдельный `#include <TisegButton.h>` не нужен.
 
 ```cpp
-#include <TisegButton.h>
+#include <Tiseg.h>
 
 TisegButton button(9);
 ```
 
-По умолчанию используется `INPUT_PULLUP`, поэтому подключение простое:
+По умолчанию используется `INPUT_PULLUP`:
 
 ```text
 Arduino pin ---- button ---- GND
 ```
 
-В `setup()`:
+В `setup()` кнопку нужно активировать:
 
 ```cpp
 button.begin();
 button.onPress(myFunction);
 ```
+
+`button.begin()` оставлен явно, потому что настройка Arduino-пина должна выполняться после запуска Arduino runtime, то есть из `setup()`.
 
 В `loop()`:
 
@@ -146,57 +130,55 @@ button.onPress(myFunction);
 button.tick();
 ```
 
-При каждом нормальном нажатии после антидребезга библиотека один раз вызовет назначенную функцию:
+Callback на нажатие:
 
 ```cpp
 void myFunction() {
-    // действие при нажатии
+    // действие
 }
 ```
 
-Можно также назначить функцию на отпускание:
+Также доступны:
 
 ```cpp
 button.onRelease(myReleaseFunction);
+button.isPressed();
+button.wasPressed();
+button.wasReleased();
 ```
 
-Или работать без callback-функций:
-
-```cpp
-if (button.wasPressed()) {
-    // одно событие на одно нажатие
-}
-```
-
-Текущее стабильное состояние доступно через:
-
-```cpp
-if (button.isPressed()) {
-    // кнопка сейчас удерживается
-}
-```
-
-### Настройка антидребезга
-
-По умолчанию антидребезг равен 50 мс:
+Антидребезг по умолчанию — 50 мс:
 
 ```cpp
 TisegButton button(9);
 ```
 
-Можно задать другое значение:
+Можно изменить:
 
 ```cpp
-TisegButton button(9, 80); // 80 мс
+TisegButton button(9, 80);
 ```
-
-`TisegButton` не использует `delay()`, поэтому дисплей продолжает нормально мультиплексироваться во время работы кнопки.
 
 ## Таймер одной кнопкой: старт → пауза → сброс
 
-Полный пример находится в `examples/ButtonTimer/ButtonTimer.ino`.
+Полный пример: `examples/ButtonTimer/ButtonTimer.ino`.
 
-Главная идея — состояние таймера хранится в пользовательском коде:
+Для него тоже нужен только один include:
+
+```cpp
+#include <Tiseg.h>
+
+Tiseg<4> display(digitPins, segmentPins);
+TisegButton button(9);
+```
+
+Кнопке назначается функция:
+
+```cpp
+button.onPress(handleTimerButton);
+```
+
+Состояния таймера:
 
 ```cpp
 enum TimerState {
@@ -206,30 +188,21 @@ enum TimerState {
 };
 ```
 
-Кнопке назначается одна функция:
-
-```cpp
-button.onPress(handleTimerButton);
-```
-
-А функция меняет действие в зависимости от текущего состояния:
+Логика:
 
 ```cpp
 void handleTimerButton() {
     switch (timerState) {
         case TIMER_READY:
-            // первое нажатие — старт
             timerState = TIMER_RUNNING;
             lastSecondAt = millis();
             break;
 
         case TIMER_RUNNING:
-            // второе нажатие — пауза
             timerState = TIMER_PAUSED;
             break;
 
         case TIMER_PAUSED:
-            // третье нажатие — сброс
             timerState = TIMER_READY;
             seconds = 0;
             display.printR(0, true);
@@ -238,51 +211,31 @@ void handleTimerButton() {
 }
 ```
 
-После сброса следующее нажатие снова запускает таймер.
+Получается цикл:
 
-Такой подход специально разделяет обязанности:
-
-- `Tiseg` отвечает только за дисплей;
-- `TisegButton` отвечает только за кнопку и антидребезг;
-- логика таймера остаётся в скетче и легко меняется под конкретный проект.
-
-## Пример изменения числа
-
-`print()` только меняет содержимое буфера, поэтому его можно вызывать тогда, когда значение действительно изменилось:
-
-```cpp
-int value = 0;
-unsigned long lastUpdate = 0;
-
-void loop() {
-    display.tick();
-
-    if (millis() - lastUpdate >= 1000) {
-        lastUpdate = millis();
-        value++;
-        display.printR(value, true);
-    }
-}
+```text
+1-е нажатие -> старт
+2-е нажатие -> пауза
+3-е нажатие -> сброс в 0000
+4-е нажатие -> новый старт
 ```
 
 ## Если число не помещается
 
-Если число содержит больше цифр, чем доступно на дисплее, лишние старшие цифры отбрасываются.
-
-Например, на четырёхразрядном дисплее:
+Старшие лишние цифры отбрасываются:
 
 ```cpp
-display.printR(12345); // 2345
+display.printR(12345); // 2345 на 4-разрядном дисплее
 ```
 
-Для отрицательного числа один разряд резервируется под знак минус.
+Для отрицательного числа один разряд резервируется под минус.
 
-## Структура репозитория
+## Структура
 
 ```text
 Tiseg/
-├── Tiseg.h
-├── TisegButton.h
+├── Tiseg.h              # основной публичный include
+├── TisegButton.h        # подключается автоматически из Tiseg.h
 ├── library.properties
 └── examples/
     ├── BasicDisplay/
