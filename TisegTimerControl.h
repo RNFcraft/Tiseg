@@ -5,8 +5,8 @@
 /**
  * TisegTimerControl — small helper for the usual one-button timer workflow.
  *
- * It does NOT count time and does NOT control the display. The sketch keeps
- * full control over millis(), limits, output formatting and timer behaviour.
+ * It does NOT decide how long the timer runs and does NOT own the timer value.
+ * The sketch can use an ordinary for-loop to define the timer range.
  *
  * Button cycle:
  *   READY -> RUNNING -> PAUSED -> READY
@@ -74,6 +74,37 @@ public:
         _state = READY;
         clearEvents();
         _resetEvent = true;
+    }
+
+    /**
+     * Wait while keeping a tickable device (for example Tiseg display)
+     * refreshed and the button responsive.
+     *
+     * Designed for simple editable timer loops:
+     *
+     *   for (int sec = 0; sec <= 60; sec++) {
+     *       display.printR(sec);
+     *       if (!timer.wait(1000, display)) break;
+     *   }
+     *
+     * Returns false if the timer leaves RUNNING state during the wait.
+     * This lets a button press immediately stop the for-loop.
+     *
+     * Note: this intentionally waits inside the current sketch flow, but it
+     * keeps both the display and button serviced during that time.
+     */
+    template <typename Tickable>
+    bool wait(unsigned long durationMs, Tickable& tickable) {
+        if (_state != RUNNING) return false;
+
+        unsigned long startedAt = millis();
+
+        while (_state == RUNNING && millis() - startedAt < durationMs) {
+            tickable.tick();
+            tick();
+        }
+
+        return _state == RUNNING;
     }
 
     State state() const {
