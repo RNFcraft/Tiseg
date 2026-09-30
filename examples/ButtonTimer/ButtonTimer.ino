@@ -29,6 +29,7 @@ void loop() {
     // First press: run the editable timer loop.
     if (timer.justStarted()) {
         for (seconds = 0; seconds <= 60; seconds++) {
+            // New number becomes visible immediately.
             // While running, do not fill unused digits with zeros.
             display.printR(seconds, false);
 
@@ -38,10 +39,14 @@ void loop() {
                 break;
             }
 
-            // Wait one second while still refreshing the display and button.
-            // If the button is pressed, timer becomes PAUSED and wait()
-            // returns false, so the for-loop stops immediately.
-            if (!timer.wait(1000, display)) {
+            // One timer step:
+            //   first 500 ms  -> current number is visible
+            //   second 500 ms -> display is blank
+            // Then the for-loop switches to the next number and printR()
+            // lights the display again with that new value.
+            //
+            // The button remains responsive during both halves.
+            if (!timer.waitBlink(1000, display)) {
                 break;
             }
         }
@@ -49,7 +54,7 @@ void loop() {
 
     // Second press during counting, or automatic stop at 60.
     if (timer.justPaused()) {
-        // Paused/stopped state: fill leading zeros.
+        // Paused/stopped state: display stays on and leading zeros are shown.
         display.printR(seconds, true);
     }
 
