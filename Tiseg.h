@@ -1,249 +1,222 @@
 #pragma once
 #include <Arduino.h>
+#include "TisegButton.h"
 
 /**
- * Класс Tiseg для управления таймером на семисегментном дисплее.
- * Шаблонный параметр DIGITS задает количество разрядов (например, 4).
+ * Tiseg — lightweight driver for directly connected multiplexed
+ * common-anode 7-segment displays.
  *
- * Библиотека самодостаточна: динамическая индикация реализована внутри
- * (методы multiplex/clearPrintR/clear/update), внешних зависимостей нет —
- * только Arduino API.
+ * Electrical polarity for a direct common-anode connection:
+ *   digit/common anode: HIGH = enabled, LOW = disabled
+ *   segment cathode:    LOW  = lit,     HIGH = off
+ *
+ * Tiseg itself only handles number output and multiplexing.
+ * TisegButton and TisegTimerControl are available through this same header,
+ * so sketches only need #include <Tiseg.h>.
+ *
+ * DIGITS is the number of display digits, for example Tiseg<4>.
  */
 template <uint8_t DIGITS>
 class Tiseg {
-  public:
-    /**
-     * Конструктор класса
-     * @param digitPins   Массив пинов разрядов дисплея (DIGITS шт.)
-     * @param segmentPins Массив пинов сегментов дисплея (8 шт.: a,b,c,d,e,f,g,dp)
-     * @param buttonPin   Пин подключения кнопки (INPUT_PULLUP, нажатие = LOW)
-     */
-    Tiseg(const uint8_t* digitPins, const uint8_t* segmentPins, uint8_t buttonPin) :
-        _digitPins(digitPins), _segmentPins(segmentPins), _btn(buttonPin) {}
+public:
+    Tiseg(const uint8_t* digitPins, const uint8_t* segmentPins)
+        : _digitPins(digitPins), _segmentPins(segmentPins) {}
 
-    /**
-     * Инициализация периферии. Вызывать внутри setup().
-     */
     void begin() {
-        pinMode(_btn, INPUT_PULLUP);
-        for (uint8_t i = 0; i < DIGITS; i++) pinMode(_digitPins[i], OUTPUT);
-        for (uint8_t i = 0; i < 8; i++) pinMode(_segmentPins[i], OUTPUT);
-        showZero();
-        // Стартовая задержка, как в исходном коде (неблокирующая: крутим tick())
-        unsigned long start = millis();
-        while (millis() - start < 2000) tick();
+        // Direct common-anode connection: LOW keeps a digit disabled.
+        for (uint8_t i = 0; i < DIGITS; i++) {
+            pinMode(_digitPins[i], OUTPUT);
+            digitalWrite(_digitPins[i], DIGIT_OFF);
+        }
+
+        // Segment cathodes are active LOW, so HIGH means off.
+        for (uint8_t i = 0; i < 8; i++) {
+            pinMode(_segmentPins[i], OUTPUT);
+            digitalWrite(_segmentPins[i], SEGMENT_OFF);
+        }
+
+        _enabled = true;
+        clear();
     }
 
-    /**
-     * Обновление динамической индикации дисплея.
-     * Необходимо постоянно вызывать внутри главного loop().
-     */
     void tick() {
+        if (!_enabled) return;
         multiplex();
     }
 
-    /**
-     * Проверка нажатия кнопки (LOW-уровень) с защитой от дребезга.
-     */
-    bool isButtonPressed() {
-        if (digitalRead(_btn) == LOW) {
-            delay(50); // Базовый антидребезг
-            if (digitalRead(_btn) == LOW) {
-                return true;
-            }
+    void print(long num, bool fillZeros = false) {
+        printR(num, fillZeros);
+    }
+
+    void printR(long num, bool fillZeros = false) {
+        render(num, false, fillZeros);
+    }
+
+    void printL(long num, bool fillZeros = false) {
+        render(num, true, fillZeros);
+    }
+
+    void clear() {
+        for (uint8_t i = 0; i < DIGITS; i++) {
+            _screen[i] = 0;
         }
-        return false;
     }
 
     /**
-     * Вывод нуля (соответствующего количества нулей) на дисплей.
+     * Enable or blank the physical display without changing the buffer.
+     * Calling print()/printR()/printL() enables the display again.
      */
-    void showZero() {
-        clearPrintR(0);
-        update();
-    }
+    void setEnabled(bool enabled) {
+        if (_enabled == enabled) return;
 
-    /**
-     * Запуск цикла таймера от 0 до указанного числа секунд.
-     * @param maxSeconds Время, до которого идет отсчет (например, 60).
-     */
-    void runTimer(int maxSeconds) {
-        for (int num = 0; num <= maxSeconds; num++) {
-            clearPrintR(num);
-            update();
+        _enabled = enabled;
 
-            bool blinked = false; // Флаг: моргали ли уже в этой секунде
-            unsigned long startTime = millis();
+        if (!_enabled) {
+            disableDigits();
 
-            // Внутренний цикл удержания одной секунды
-            while (millis() - startTime < 1000) {
-                tick(); // Постоянное обновление дисплея во время ожидания
-                unsigned long elapsed = millis() - startTime;
-
-                // Спустя 500 мс тушим экран для эффекта мигания
-                if (elapsed >= 500 && !blinked) {
-                    clear();
-                    update();
-                    blinked = true;
-                }
-
-                // Проверка нажатия кнопки во второй половине секунды (пауза/выход)
-                if (elapsed > 500 && digitalRead(_btn) == LOW) {
-                    if (handlePauseAndExit(num, blinked)) {
-                        return; // Прерываем таймер и возвращаемся в loop
-                    }
-                }
+            for (uint8_t s = 0; s < 8; s++) {
+                digitalWrite(_segmentPins[s], SEGMENT_OFF);
             }
-
-            // Если фаза мигания активна, возвращаем число перед новой секундой
-            if (blinked) {
-                clearPrintR(num);
-                update();
-            }
+        } else {
+            // Let the next tick refresh immediately.
+            _stepAt = 0;
         }
-
-        // Таймер дошел до конца, переходим в режим ожидания сброса
-        waitForReset();
     }
 
-  private:
-    const uint8_t* _digitPins;   // Пины разрядов (общий анод)
-    const uint8_t* _segmentPins; // Пины сегментов
-    uint8_t _btn;                // Номер пина кнопки
+    void show() {
+        setEnabled(true);
+    }
 
-    uint8_t _screen[DIGITS] = {0};  // Текущее изображение на дисплее
-    uint8_t _digit = 0;             // Активный разряд при мультиплексировании
-    unsigned long _stepAt = 0;      // Millis последнего переключения разряда
+    void hide() {
+        setEnabled(false);
+    }
 
-    // Коды сегментов для цифр 0-9: биты a,b,c,d,e,f,g,dp (бит 7 = dp)
+    bool isEnabled() const {
+        return _enabled;
+    }
+
+private:
+    const uint8_t* _digitPins;
+    const uint8_t* _segmentPins;
+
+    uint8_t _screen[DIGITS] = {0};
+    uint8_t _digit = 0;
+    unsigned long _stepAt = 0;
+    bool _enabled = true;
+
+    static const uint8_t DIGIT_ON = HIGH;
+    static const uint8_t DIGIT_OFF = LOW;
+    static const uint8_t SEGMENT_ON = LOW;
+    static const uint8_t SEGMENT_OFF = HIGH;
+
     static const uint8_t SEG7[10];
+    static const uint8_t MINUS = 0x40;
 
-    /**
-     * Светит один разряд согласно _screen[] (общий анод: разряд LOW, сегменты LOW = горят).
-     */
+    void disableDigits() {
+        for (uint8_t i = 0; i < DIGITS; i++) {
+            digitalWrite(_digitPins[i], DIGIT_OFF);
+        }
+    }
+
     void multiplex() {
         unsigned long now = millis();
-        if (now - _stepAt < 2) return; // ~разрешение мультиплексирования
+        if (now - _stepAt < 2) return;
         _stepAt = now;
 
-        // Погасить все разряды
-        for (uint8_t i = 0; i < DIGITS; i++) digitalWrite(_digitPins[i], HIGH);
+        // Disable every common anode before changing segment lines.
+        // This prevents ghosting between digits.
+        disableDigits();
 
-        // Подготовить сегменты текущего разряда
         uint8_t code = _screen[_digit];
+
+        // Prepare all segment cathodes while all digits are disabled.
         for (uint8_t s = 0; s < 8; s++) {
-            digitalWrite(_segmentPins[s], (code & (1 << s)) ? LOW : HIGH);
+            digitalWrite(
+                _segmentPins[s],
+                (code & (1 << s)) ? SEGMENT_ON : SEGMENT_OFF
+            );
         }
 
-        // Включить текущий разряд
-        digitalWrite(_digitPins[_digit], LOW);
+        // Enable only the selected common-anode digit.
+        digitalWrite(_digitPins[_digit], DIGIT_ON);
 
-        if (++_digit >= DIGITS) _digit = 0;
+        if (++_digit >= DIGITS) {
+            _digit = 0;
+        }
     }
 
-    /**
-     * Очистить изображение и вывести число справа налево (аналог clearPrintR).
-     */
-    void clearPrintR(int num) {
+    void render(long num, bool alignLeft, bool fillZeros) {
+        // A new value should become visible even if the display was blanked.
+        setEnabled(true);
         clear();
-        bool neg = (num < 0);
-        unsigned long v = neg ? (unsigned long)(-(num + 1)) + 1UL : (unsigned long)num;
-        int8_t pos = (int8_t)DIGITS - 1;
+
+        bool negative = (num < 0);
+        unsigned long value = negative
+            ? (unsigned long)(-(num + 1L)) + 1UL
+            : (unsigned long)num;
+
+        uint8_t available = DIGITS;
+        if (negative && available > 0) {
+            available--;
+        }
+
+        if (available == 0) {
+            if (negative && DIGITS > 0) {
+                _screen[0] = MINUS;
+            }
+            return;
+        }
+
+        uint8_t digits[DIGITS];
+        uint8_t count = 0;
+
         do {
-            uint8_t d = v % 10;
-            v /= 10;
-            _screen[pos] = SEG7[d];
-            if (pos == (int8_t)DIGITS - 2) _screen[pos] |= 0x80; // десятичная точка после целых
-            pos--;
-        } while (v > 0 && pos >= 0);
-        if (neg && pos >= 0) _screen[pos] = 0x40; // минус (сегмент g)
-    }
+            digits[count++] = value % 10;
+            value /= 10;
+        } while (value > 0 && count < available);
 
-    /**
-     * Погасить всё изображение (аналог clear()).
-     */
-    void clear() {
-        for (uint8_t i = 0; i < DIGITS; i++) _screen[i] = 0;
-    }
-
-    /**
-     * Немедленно применить текущее изображение (аналог update()).
-     */
-    void update() {
-        _digit = 0;
-        _stepAt = 0;
-        multiplex();
-    }
-
-    /**
-     * Внутренний метод обработки паузы и аварийного выхода.
-     * Возвращает true, если нужно полностью прервать выполнение таймера.
-     */
-    bool handlePauseAndExit(int currentNum, bool& blinked) {
-        // Ожидаем отпускания кнопки (встали на паузу)
-        while (digitalRead(_btn) == LOW) {
-            tick();
+        if (fillZeros) {
+            for (uint8_t i = 0; i < DIGITS; i++) {
+                _screen[i] = SEG7[0];
+            }
         }
 
-        // Во время паузы возвращаем текущее число на экран, чтобы оно горело стабильно
-        if (blinked) {
-            clearPrintR(currentNum);
-            update();
-        }
+        if (alignLeft) {
+            uint8_t pos = 0;
 
-        // Ждем следующего нажатия кнопки (сигнал к сбросу)
-        while (digitalRead(_btn) == HIGH) {
-            tick();
-        }
-        // Ждем отпускания после нажатия на сброс
-        while (digitalRead(_btn) == LOW) {
-            tick();
-        }
+            if (negative && pos < DIGITS) {
+                _screen[pos++] = MINUS;
+            }
 
-        // Анимация возврата к исходному состоянию
-        showZero();
-        delayMillis(200);
-        showZero();
-        delayMillis(500);
-        return true;
-    }
+            for (uint8_t i = 0; i < count && pos < DIGITS; i++) {
+                _screen[pos++] = SEG7[digits[count - 1 - i]];
+            }
+        } else {
+            int16_t pos = (int16_t)DIGITS - 1;
 
-    /**
-     * Ожидание нажатия кнопки для сброса после того, как таймер успешно завершился.
-     */
-    void waitForReset() {
-        while (digitalRead(_btn) == HIGH) {
-            tick();
-        }
-        while (digitalRead(_btn) == LOW) {
-            tick();
-        }
-        showZero();
-        delayMillis(200);
-        showZero();
-        delayMillis(500);
-    }
+            for (uint8_t i = 0; i < count && pos >= 0; i++) {
+                _screen[pos--] = SEG7[digits[i]];
+            }
 
-    /**
-     * Неблокирующая задержка: ожидание ms миллисекунд с продолжением работы дисплея.
-     */
-    void delayMillis(unsigned long ms) {
-        unsigned long start = millis();
-        while (millis() - start < ms) tick();
+            if (negative && pos >= 0) {
+                _screen[pos] = MINUS;
+            }
+        }
     }
 };
 
-// Таблица кодов сегментов: a=0 b=1 c=2 d=3 e=4 f=5 g=6 dp=7
 template <uint8_t DIGITS>
 const uint8_t Tiseg<DIGITS>::SEG7[10] = {
-    0x3F, // 0: a b c d e f
-    0x06, // 1: b c
-    0x5B, // 2: a b d e g
-    0x4F, // 3: a b c d g
-    0x66, // 4: b c f g
-    0x6D, // 5: a c d f g
-    0x7D, // 6: a c d e f g
-    0x07, // 7: a b c
-    0x7F, // 8: все
-    0x6F  // 9: a b c d f g
+    0x3F,
+    0x06,
+    0x5B,
+    0x4F,
+    0x66,
+    0x6D,
+    0x7D,
+    0x07,
+    0x7F,
+    0x6F
 };
+
+#include "TisegTimerControl.h"
