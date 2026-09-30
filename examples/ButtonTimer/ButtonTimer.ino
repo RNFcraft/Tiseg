@@ -7,66 +7,55 @@ const uint8_t digitPins[] = {13, 12, 11, 10};
 const uint8_t segmentPins[] = {2, 3, 4, 5, 6, 7, 8, 1};
 
 const uint8_t BUTTON_PIN = 9;
-const unsigned long MAX_SECONDS = 60;
 
 Tiseg<4> display(digitPins, segmentPins);
 TisegTimerControl timer(BUTTON_PIN);
 
-// Timer logic stays in the sketch and can be freely edited.
-unsigned long seconds = 0;
-unsigned long lastSecondAt = 0;
+// The timer value stays in the sketch and can be used anywhere.
+int seconds = 0;
 
 void setup() {
     display.begin();
     timer.begin();
 
-    // Ready/reset state: always show 0000.
-    display.printR(0, true);
+    // Ready/reset state.
+    display.printR(0, true); // 0000
 }
 
 void loop() {
     display.tick();
     timer.tick();
 
-    // 1st button press: start.
+    // First press: run the editable timer loop.
     if (timer.justStarted()) {
-        lastSecondAt = millis();
+        for (seconds = 0; seconds <= 60; seconds++) {
+            // While running, do not fill unused digits with zeros.
+            display.printR(seconds, false);
 
-        // Running state: no leading zeros.
-        display.printR((long)seconds, false);
+            // Stop at 60. Change 60 to any value or change the loop itself.
+            if (seconds == 60) {
+                timer.pause();
+                break;
+            }
+
+            // Wait one second while still refreshing the display and button.
+            // If the button is pressed, timer becomes PAUSED and wait()
+            // returns false, so the for-loop stops immediately.
+            if (!timer.wait(1000, display)) {
+                break;
+            }
+        }
     }
 
-    // 2nd button press: pause.
+    // Second press during counting, or automatic stop at 60.
     if (timer.justPaused()) {
-        // Paused state: show leading zeros.
-        display.printR((long)seconds, true);
+        // Paused/stopped state: fill leading zeros.
+        display.printR(seconds, true);
     }
 
-    // 3rd button press: reset.
+    // Third press: reset.
     if (timer.justReset()) {
         seconds = 0;
         display.printR(0, true); // 0000
-    }
-
-    // Everything below is ordinary editable timer logic.
-    if (timer.isRunning()) {
-        unsigned long now = millis();
-
-        while (timer.isRunning() && now - lastSecondAt >= 1000UL) {
-            lastSecondAt += 1000UL;
-            seconds++;
-
-            // While running: ___1, __12, ...
-            display.printR((long)seconds, false);
-
-            // Stop at 60. Change/remove this block for another behaviour.
-            if (seconds >= MAX_SECONDS) {
-                seconds = MAX_SECONDS;
-                timer.pause();
-
-                // Stopped/paused: 0060.
-                display.printR((long)seconds, true);
-            }
-        }
     }
 }
