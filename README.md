@@ -13,9 +13,9 @@
 
 - `Tiseg<DIGITS>` — вывод чисел на дисплей;
 - `TisegButton` — отдельная кнопка с антидребезгом;
-- `TisegTimerControl` — обвязка кнопки для цикла **start → pause → reset**.
+- `TisegTimerControl` — обвязка кнопки для цикла **start → pause → reset** и удобного таймера через обычный `for`.
 
-`TisegTimerControl` специально **не считает время и не управляет дисплеем**. Секунды, предел таймера, формат вывода и вся прикладная логика остаются в скетче, чтобы её можно было легко менять.
+`TisegTimerControl` не задаёт длительность таймера и не хранит максимальное число секунд. Диапазон задаётся прямо в скетче обычным циклом `for`, поэтому таймер легко менять без правки библиотеки.
 
 ## Важно: общий анод
 
@@ -28,7 +28,7 @@
 
 Если общие аноды управляются через инвертирующий транзисторный каскад, полярность управляющих пинов будет другой.
 
-## Пример: редактируемый таймер 0 → 60
+## Пример: таймер 0 → 60 через `for`
 
 ```cpp
 #include <Tiseg.h>
@@ -36,14 +36,10 @@
 const uint8_t digitPins[] = {13, 12, 11, 10};
 const uint8_t segmentPins[] = {2, 3, 4, 5, 6, 7, 8, 1};
 
-const uint8_t BUTTON_PIN = 9;
-const unsigned long MAX_SECONDS = 60;
-
 Tiseg<4> display(digitPins, segmentPins);
-TisegTimerControl timer(BUTTON_PIN);
+TisegTimerControl timer(9);
 
-unsigned long seconds = 0;
-unsigned long lastSecondAt = 0;
+int seconds = 0;
 
 void setup() {
     display.begin();
@@ -56,52 +52,81 @@ void loop() {
     timer.tick();
 
     if (timer.justStarted()) {
-        lastSecondAt = millis();
-        display.printR((long)seconds, false);
+        for (seconds = 0; seconds <= 60; seconds++) {
+            // Во время счёта ведущие нули выключены.
+            display.printR(seconds, false);
+
+            // Конец диапазона задаётся прямо циклом for.
+            if (seconds == 60) {
+                timer.pause();
+                break;
+            }
+
+            // Ждём секунду, но дисплей и кнопка продолжают работать.
+            // При нажатии кнопки wait() вернёт false и цикл остановится.
+            if (!timer.wait(1000, display)) {
+                break;
+            }
+        }
     }
 
     if (timer.justPaused()) {
-        display.printR((long)seconds, true);
+        // На паузе ведущие нули включены.
+        display.printR(seconds, true);
     }
 
     if (timer.justReset()) {
         seconds = 0;
-        display.printR(0, true);
-    }
-
-    if (timer.isRunning()) {
-        unsigned long now = millis();
-
-        while (timer.isRunning() && now - lastSecondAt >= 1000UL) {
-            lastSecondAt += 1000UL;
-            seconds++;
-            display.printR((long)seconds, false);
-
-            if (seconds >= MAX_SECONDS) {
-                seconds = MAX_SECONDS;
-                timer.pause();
-                display.printR((long)seconds, true);
-            }
-        }
+        display.printR(0, true); // 0000
     }
 }
 ```
 
-### Поведение этого примера
+### Поведение примера
 
 - после включения: `0000`;
-- первое нажатие — запуск, во время счёта: `___0`, `___1`, `__12` ...;
-- второе нажатие — пауза и заполнение нулями: `0012`;
-- третье нажатие — сброс: `0000`;
-- при достижении `60` пример сам вызывает `timer.pause()` и показывает `0060`.
+- первое нажатие — запуск: `___0`, `___1`, `___2` ... `__12` ...;
+- второе нажатие во время счёта — пауза и ведущие нули, например `0012`;
+- третье нажатие — сброс в `0000`;
+- если цикл сам доходит до `60`, он останавливается на `0060`.
 
-При этом всё легко менять прямо в скетче. Например:
+Главное преимущество — сам таймер теперь задаётся обычным `for`:
 
 ```cpp
-const unsigned long MAX_SECONDS = 120;
+for (seconds = 0; seconds <= 60; seconds++) {
+    ...
+}
 ```
 
-или убрать автоматическую остановку, изменить шаг времени, формат вывода, добавить мигание и т.д.
+Чтобы считать до 120:
+
+```cpp
+for (seconds = 0; seconds <= 120; seconds++) {
+    ...
+}
+```
+
+Чтобы считать с 10 до 30:
+
+```cpp
+for (seconds = 10; seconds <= 30; seconds++) {
+    ...
+}
+```
+
+Чтобы сделать обратный отсчёт:
+
+```cpp
+for (seconds = 60; seconds >= 0; seconds--) {
+    ...
+}
+```
+
+Шаг времени тоже остаётся в скетче:
+
+```cpp
+timer.wait(500, display);  // шаг каждые 0.5 секунды
+```
 
 ## `TisegTimerControl`
 
@@ -117,10 +142,26 @@ TisegTimerControl timer(buttonPin);
 timer.begin();
 ```
 
-В `loop()`:
+В обычном `loop()`:
 
 ```cpp
 timer.tick();
+```
+
+Для таймера через `for` используется:
+
+```cpp
+timer.wait(milliseconds, display);
+```
+
+`wait()` намеренно удерживает выполнение внутри текущего цикла `for`, но при этом постоянно вызывает `display.tick()` и `timer.tick()`. Поэтому динамическая индикация не останавливается, а кнопка остаётся рабочей.
+
+Если во время `wait()` нажать кнопку, состояние меняется на `PAUSED`, `wait()` возвращает `false`, и цикл можно немедленно прервать:
+
+```cpp
+if (!timer.wait(1000, display)) {
+    break;
+}
 ```
 
 Состояния:
@@ -139,7 +180,7 @@ timer.justPaused();
 timer.justReset();
 ```
 
-Состоянием можно управлять вручную из своего кода:
+Состоянием можно управлять вручную:
 
 ```cpp
 timer.start();
@@ -147,7 +188,7 @@ timer.pause();
 timer.reset();
 ```
 
-То есть библиотека убирает только повторяющийся код кнопки и переключения состояний, но не прячет сам таймер.
+Для более сложных проектов можно вообще не использовать `wait()` и работать с `tick()`/состояниями неблокирующим способом.
 
 ## Вывод чисел через `Tiseg`
 
